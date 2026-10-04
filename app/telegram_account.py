@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -13,6 +14,7 @@ from pyrogram.errors import FloodWait
 
 from app.config import Settings
 
+log = logging.getLogger(__name__)
 
 @dataclass
 class BroadcastResult:
@@ -20,6 +22,7 @@ class BroadcastResult:
     sent: int = 0
     failed: int = 0
     stopped_by_flood_wait: int | None = None
+    errors: dict[str, int] = field(default_factory=dict)
 
 
 def new_client(settings: Settings, session: str = ""):
@@ -117,9 +120,16 @@ async def broadcast_to_users(
         except FloodWait as error:
             result.stopped_by_flood_wait = int(error.value)
             break
-        except Exception:
+        except Exception as error:
             result.failed += 1
-        if progress and index % 10 == 0:
+            # Keep a bounded summary without logging post contents or credentials.
+            description = f'{type(error).__name__}: {error}'
+            description = ' '.join(description.split())[:300]
+            if description not in result.errors and len(result.errors) >= 3:
+                description = 'Другие ошибки'
+            result.errors[description] = result.errors.get(description, 0) + 1
+            log.warning('Broadcast send failed (%s): %s', media_kind if media_path else 'text', description)
+        if progress and (index == 1 or index % 10 == 0):
             await progress(result)
         await asyncio.sleep(delay_seconds)
     return result

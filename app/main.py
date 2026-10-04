@@ -741,16 +741,23 @@ def build_router(
             media_kind = 'voice' if data.get('voice_file_id') else 'photo'
             file_id = data.get('voice_file_id') or data.get('photo_file_id')
             if file_id:
-                temp = tempfile.NamedTemporaryFile(prefix='tg-promo-', suffix='.ogg' if media_kind == 'voice' else '.jpg', delete=False)
+                # Some hosts mount /tmp as a tiny RAM disk. Use the data volume.
+                download_dir = Path('data/tmp')
+                download_dir.mkdir(parents=True, exist_ok=True)
+                temp = tempfile.NamedTemporaryFile(dir=download_dir, prefix='tg-promo-', suffix='.ogg' if media_kind == 'voice' else '.jpg', delete=False)
                 temp.close()
                 media_path = Path(temp.name)
+                await status.edit_text('Загружаю файл для отправки…')
                 await bot.download(file_id, destination=media_path)
+                if media_path.stat().st_size == 0:
+                    raise RuntimeError('Telegram вернул пустой файл. Загрузите фото или голосовое заново.')
 
             async def progress(current) -> None:
                 with suppress(Exception):
                     await status.edit_text(
                         f"Отправка: {current.sent + current.failed}/{current.eligible}; "
                         f"успешно {current.sent}, ошибок {current.failed}."
+                        + ('\nПричина: ' + next(iter(current.errors)) if current.errors else '')
                     )
 
             result = await broadcast_to_users(
@@ -774,6 +781,10 @@ def build_router(
                 details += (
                     f" Telegram потребовал паузу {result.stopped_by_flood_wait} сек.; "
                     "текущая отправка остановлена."
+                )
+            if result.errors:
+                details += '\nОшибки:\n' + '\n'.join(
+                    f'{count} × {reason}' for reason, count in result.errors.items()
                 )
             await status.edit_text(details)
         except Exception as error:

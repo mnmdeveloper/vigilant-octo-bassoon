@@ -24,12 +24,57 @@ from pytgcalls.types import StreamEnded, Device
 from telethon.errors import FloodWaitError
 from pyrogram.errors import FloodWait
 
-from app.db import Database
+from app.db import Account, Database
+from app.runtime import RuntimeManager
 from app.telegram_account import broadcast_to_users
 from app.session_import import import_session
 
 
 class RegressionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runtime_initializes_profile_for_real_media_uploader(self):
+        # Real Pyrofork client/uploader; transport and credentials are entirely fake.
+        client = Client('offline-test', api_id=1, api_hash='0' * 32, in_memory=True)
+        profile = SimpleNamespace(id=123, is_premium=False)
+        calls = Mock()
+        calls.on_update.return_value = lambda handler: handler
+        calls.start = AsyncMock()
+        manager = RuntimeManager(Settings('unused', 1, None, None, 4), Mock())
+        with patch.object(client, 'connect', new=AsyncMock(return_value=True)), \
+             patch.object(client, 'get_me', new=AsyncMock(return_value=profile)), \
+             patch.object(client, 'initialize', new=AsyncMock()), \
+             patch.object(client, 'add_handler'), \
+             patch('app.runtime.new_client', return_value=client), \
+             patch('app.runtime.PyTgCalls', return_value=calls):
+            await manager.start_account(Account(1, '+10000000000', 'unused'))
+        self.assertIs(client.me, profile)
+        with tempfile.TemporaryDirectory() as folder:
+            media = Path(folder) / 'fixture.ogg'
+            media.write_bytes(b'offline upload fixture')
+            session = AsyncMock()
+            with patch('pyrogram.methods.advanced.save_file.Session', return_value=session), \
+                 patch.object(client.storage, 'dc_id', new=AsyncMock(return_value=2)), \
+                 patch.object(client.storage, 'auth_key', new=AsyncMock(return_value=bytes(256))), \
+                 patch.object(client.storage, 'test_mode', new=AsyncMock(return_value=True)):
+                uploaded = await client.save_file(str(media))
+            self.assertIsNotNone(uploaded)
+            self.assertEqual(uploaded.parts, 1)
+            session.start.assert_awaited_once()
+
+    async def test_photo_is_sent_as_photo_and_errors_are_reported(self):
+        client = AsyncMock(spec=Client)
+        client.send_photo = AsyncMock(side_effect=[ValueError('media upload failed'), Mock()])
+        client.send_voice = AsyncMock()
+        progress = AsyncMock()
+        with patch('app.telegram_account.asyncio.sleep', new=AsyncMock()), \
+             self.assertLogs('app.telegram_account', level='WARNING') as logs:
+            result = await broadcast_to_users(client, [123, 456], 'caption', Path('photo.jpg'), 0, progress)
+        self.assertEqual(client.send_photo.await_count, 2)
+        client.send_voice.assert_not_awaited()
+        self.assertEqual((result.sent, result.failed), (1, 1))
+        self.assertEqual(result.errors, {'ValueError: media upload failed': 1})
+        self.assertIn('media upload failed', logs.output[0])
+        progress.assert_awaited_once()
+
     async def test_already_muted_is_not_a_scheduling_failure(self):
         client = AsyncMock()
         client.invoke.side_effect = GroupcallNotModified()

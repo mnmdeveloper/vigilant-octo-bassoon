@@ -53,7 +53,9 @@ class RuntimeManager:
                 authorized = await client.connect()
                 if authorized:
                     try:
-                        await client.get_me()
+                        # connect/initialize bypass Client.start(), which normally
+                        # populates this field. Media uploads read me.is_premium.
+                        client.me = await client.get_me()
                         await client.initialize()
                     except Exception:
                         await client.disconnect()
