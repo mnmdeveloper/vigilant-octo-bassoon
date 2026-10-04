@@ -1,0 +1,14 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+data/
+*.session
+*.session-journal
+*.session-wal
+*.session-shm
+audio_work/output/
+audio_work/final/
+.env.*
+!.env.example
+.pytest_cache/

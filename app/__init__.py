@@ -1,0 +1,2 @@
+"""Local Telegram promo assistant."""
+

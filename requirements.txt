@@ -1,0 +1,7 @@
+aiogram>=3.13,<4
+Telethon>=1.36,<2
+python-dotenv>=1.0,<2
+pyrofork==2.3.69
+tgcrypto>=1.2.5,<2
+tzdata>=2025.1
+py-tgcalls>=2.3,<3
