@@ -65,6 +65,10 @@ class SetCallAudio(StatesGroup):
     file = State()
 
 
+class SetMessageAutoReply(StatesGroup):
+    text = State()
+
+
 class ImportSession(StatesGroup):
     file = State()
 
@@ -434,6 +438,65 @@ def build_router(
             log.exception("Could not start newly added account")
             suffix = f" Фоновый сервис не запустился: {error}"
         await message.answer(f'Сессия {phone} создана и сохранена локально.{suffix}', reply_markup=main_menu())
+
+    @router.message(F.text == "💬 Автоответ на сообщения")
+    async def choose_auto_reply_account(message: Message, state: FSMContext):
+        accounts = db.list_accounts()
+        if not accounts:
+            await message.answer("Сначала добавьте аккаунт.")
+            return
+        await message.answer("Выберите аккаунт для автоответа:", reply_markup=account_picker(accounts, "autoreply"))
+
+    @router.callback_query(F.data.startswith("autoreply:"))
+    async def auto_reply_settings(callback: CallbackQuery, state: FSMContext):
+        account_id = int(callback.data.split(":")[1])
+        if not db.get_account(account_id):
+            await callback.answer("Аккаунт не найден", show_alert=True)
+            return
+        await state.clear()
+        enabled, text = db.get_auto_reply(account_id)
+        await callback.answer()
+        await callback.message.answer(
+            f"Автоответ: {'включён' if enabled else 'выключен'}\\nТекст: {text or '(не задан)'}\\nКаждому пользователю ответ отправляется только один раз.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✏️ Задать текст", callback_data=f"autoreplytext:{account_id}")],
+                [InlineKeyboardButton(text="⏸ Выключить" if enabled else "▶️ Включить", callback_data=f"autoreplytoggle:{account_id}")],
+            ]),
+        )
+
+    @router.callback_query(F.data.startswith("autoreplytext:"))
+    async def auto_reply_request_text(callback: CallbackQuery, state: FSMContext):
+        account_id = int(callback.data.split(":")[1])
+        if not db.get_account(account_id):
+            await callback.answer("Аккаунт не найден", show_alert=True)
+            return
+        await state.set_state(SetMessageAutoReply.text)
+        await state.update_data(auto_reply_account_id=account_id)
+        await callback.answer()
+        await callback.message.answer("Отправьте текст автоответа (до 4096 символов).")
+
+    @router.message(SetMessageAutoReply.text)
+    async def auto_reply_save_text(message: Message, state: FSMContext):
+        if not message.text or len(message.text) > 4096:
+            await message.answer("Пришлите текст длиной от 1 до 4096 символов.")
+            return
+        account_id = (await state.get_data())["auto_reply_account_id"]
+        db.set_auto_reply(account_id, text=message.text)
+        await state.clear()
+        await message.answer("Текст сохранён. Теперь включите автоответ.", reply_markup=main_menu())
+
+    @router.callback_query(F.data.startswith("autoreplytoggle:"))
+    async def auto_reply_toggle(callback: CallbackQuery):
+        account_id = int(callback.data.split(":")[1])
+        if not db.get_account(account_id):
+            await callback.answer("Аккаунт не найден", show_alert=True)
+            return
+        enabled, text = db.get_auto_reply(account_id)
+        if not enabled and not text.strip():
+            await callback.answer("Сначала задайте текст", show_alert=True)
+            return
+        db.set_auto_reply(account_id, enabled=not enabled)
+        await callback.answer("Автоответ включён" if not enabled else "Автоответ выключен", show_alert=True)
 
     @router.message(F.text == "📋 Аккаунты")
     async def list_accounts(message: Message) -> None:
