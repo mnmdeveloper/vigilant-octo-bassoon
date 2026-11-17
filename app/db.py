@@ -93,6 +93,8 @@ class Database:
                 )
                 """
             )
+            connection.execute("CREATE TABLE IF NOT EXISTS auto_replies(account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE, enabled INTEGER NOT NULL DEFAULT 0, text TEXT NOT NULL DEFAULT '')")
+            connection.execute("CREATE TABLE IF NOT EXISTS auto_reply_sent(account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, PRIMARY KEY(account_id,user_id))")
             connection.execute('CREATE TABLE IF NOT EXISTS callers(account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, user_id INTEGER NOT NULL, PRIMARY KEY(account_id,user_id))')
             connection.execute('CREATE TABLE IF NOT EXISTS channels(chat_id INTEGER PRIMARY KEY, title TEXT NOT NULL)')
             connection.execute('''CREATE TABLE IF NOT EXISTS streams(
@@ -100,6 +102,32 @@ class Database:
                 chat_id INTEGER NOT NULL, start_at INTEGER NOT NULL, audio_path TEXT NOT NULL,
                 call_id INTEGER NOT NULL, access_hash INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'scheduled', error TEXT)''')
+
+    def get_auto_reply(self, account_id: int):
+        with self._connect() as c:
+            row = c.execute("SELECT enabled, text FROM auto_replies WHERE account_id=?", (account_id,)).fetchone()
+            return (bool(row["enabled"]), row["text"]) if row else (False, "")
+
+    def set_auto_reply(self, account_id: int, text: str | None = None, enabled: bool | None = None):
+        with self._connect() as c:
+            c.execute("INSERT OR IGNORE INTO auto_replies(account_id, enabled, text) VALUES (?, 0, '')", (account_id,))
+            if text is not None:
+                c.execute("UPDATE auto_replies SET text=? WHERE account_id=?", (text, account_id))
+            if enabled is not None:
+                c.execute("UPDATE auto_replies SET enabled=? WHERE account_id=?", (int(enabled), account_id))
+
+    def claim_auto_reply(self, account_id: int, user_id: int) -> bool:
+        # Atomic claim: concurrent messages from one user cannot trigger two replies.
+        with self._connect() as c:
+            result = c.execute(
+                "INSERT OR IGNORE INTO auto_reply_sent(account_id,user_id) VALUES (?,?)",
+                (account_id, user_id),
+            )
+            return result.rowcount == 1
+
+    def release_auto_reply(self, account_id: int, user_id: int):
+        with self._connect() as c:
+            c.execute("DELETE FROM auto_reply_sent WHERE account_id=? AND user_id=?", (account_id,user_id))
 
     def save_stream(self, account_id, chat_id, start_at, audio_path, call_id, access_hash):
         with self._connect() as c:
