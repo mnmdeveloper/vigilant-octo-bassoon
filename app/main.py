@@ -457,7 +457,7 @@ def build_router(
         enabled, text = db.get_auto_reply(account_id)
         await callback.answer()
         await callback.message.answer(
-            f"Автоответ: {'включён' if enabled else 'выключен'}\\nТекст: {text or '(не задан)'}\\nКаждому пользователю ответ отправляется только один раз.",
+            f"Автоответ: {'включён' if enabled else 'выключен'}\nТекст: {text or '(не задан)'}\nКаждому пользователю ответ отправляется только один раз.",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="✏️ Задать текст", callback_data=f"autoreplytext:{account_id}")],
                 [InlineKeyboardButton(text="⏸ Выключить" if enabled else "▶️ Включить", callback_data=f"autoreplytoggle:{account_id}")],
