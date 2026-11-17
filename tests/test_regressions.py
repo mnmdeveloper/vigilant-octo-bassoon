@@ -60,6 +60,29 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(uploaded.parts, 1)
             session.start.assert_awaited_once()
 
+    async def test_incoming_message_database_error_is_contained(self):
+        client = Client('offline-test', api_id=1, api_hash='0' * 32, in_memory=True)
+        profile = SimpleNamespace(id=123, is_premium=False)
+        calls = Mock()
+        calls.on_update.return_value = lambda handler: handler
+        calls.start = AsyncMock()
+        manager = RuntimeManager(Settings('unused', 1, None, None, 4), Mock())
+        manager.db.upsert_recipient.side_effect = sqlite3.OperationalError('database is locked')
+        captured = []
+        with patch.object(client, 'connect', new=AsyncMock(return_value=True)), \
+             patch.object(client, 'get_me', new=AsyncMock(return_value=profile)), \
+             patch.object(client, 'initialize', new=AsyncMock()), \
+             patch.object(client, 'add_handler', side_effect=lambda handler: captured.append(handler)), \
+             patch('app.runtime.new_client', return_value=client), \
+             patch('app.runtime.PyTgCalls', return_value=calls):
+            await manager.start_account(Account(1, '+10000000000', 'unused'))
+        self.assertEqual(len(captured), 1)
+        message = SimpleNamespace(from_user=SimpleNamespace(
+            id=456, is_bot=False, first_name='User', last_name=None, username=None))
+        with self.assertLogs('app.runtime', level='ERROR') as logs:
+            await captured[0].callback(client, message)
+        self.assertIn('Could not remember incoming message sender', logs.output[0])
+
     async def test_photo_is_sent_as_photo_and_errors_are_reported(self):
         client = AsyncMock(spec=Client)
         client.send_photo = AsyncMock(side_effect=[ValueError('media upload failed'), Mock()])
