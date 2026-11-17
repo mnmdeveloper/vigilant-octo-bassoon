@@ -67,6 +67,21 @@ class RuntimeManager:
                 await client.disconnect()
                 raise RuntimeError(f"Сессия {account.phone} недействительна")
 
+            async def maybe_auto_reply(user_id: int, send):
+                try:
+                    enabled, text = self.db.get_auto_reply(account.id)
+                    if not enabled or not text.strip():
+                        return
+                    if not self.db.claim_auto_reply(account.id, user_id):
+                        return
+                    try:
+                        await send(text)
+                    except Exception:
+                        self.db.release_auto_reply(account.id, user_id)
+                        raise
+                except Exception:
+                    log.exception("Auto-reply failed for account %s and user %s", account.phone, user_id)
+
             async def remember_sender(event) -> None:
                 if not event.is_private:
                     return
@@ -87,6 +102,9 @@ class RuntimeManager:
                     )
                 except Exception:
                     log.exception("Could not remember incoming message sender for %s", account.phone)
+                sender_id = getattr(event, "sender_id", None)
+                if sender_id is not None:
+                    await maybe_auto_reply(sender_id, lambda text: event.reply(text))
 
             if isinstance(client, Client):
                 async def remember_pyro(_, message):
@@ -102,6 +120,8 @@ class RuntimeManager:
                         )
                     except Exception:
                         log.exception("Could not remember incoming message sender for %s", account.phone)
+                    if sender and not sender.is_bot:
+                        await maybe_auto_reply(sender.id, lambda text: message.reply_text(text))
                 client.add_handler(MessageHandler(remember_pyro, filters.private & filters.incoming))
             else:
                 client.add_event_handler(remember_sender, events.NewMessage(incoming=True))
