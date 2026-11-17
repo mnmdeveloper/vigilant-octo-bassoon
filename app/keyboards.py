@@ -6,7 +6,7 @@ MENU_TEXTS = {
     '📂 Импорт .session', '🔐 Создать сессию', '➕ Добавить аккаунт',
     '📋 Аккаунты', '📣 Каналы аккаунта', '✍️ Создать пост',
     '☎️ Настроить звонки', '📊 История', '➕ Добавить канал',
-    '📅 Запланировать эфир',
+    '📅 Запланировать эфир', '💬 Автоответ на сообщения',
 }
 
 
@@ -17,6 +17,7 @@ def main_menu() -> ReplyKeyboardMarkup:
             [KeyboardButton(text="🔐 Создать сессию"), KeyboardButton(text="📋 Аккаунты")],
             [KeyboardButton(text="📣 Каналы аккаунта"), KeyboardButton(text="✍️ Создать пост")],
             [KeyboardButton(text="☎️ Настроить звонки"), KeyboardButton(text="📊 История")],
+            [KeyboardButton(text="💬 Автоответ на сообщения")],
             [KeyboardButton(text="➕ Добавить канал")],
             [KeyboardButton(text="📅 Запланировать эфир")],
         ],
