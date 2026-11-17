@@ -70,27 +70,38 @@ class RuntimeManager:
             async def remember_sender(event) -> None:
                 if not event.is_private:
                     return
-                sender = await event.get_sender()
-                if sender is None or getattr(sender, "bot", False):
-                    return
-                name = " ".join(
-                    part
-                    for part in (
-                        getattr(sender, "first_name", None),
-                        getattr(sender, "last_name", None),
+                try:
+                    sender = await event.get_sender()
+                    if sender is None or getattr(sender, "bot", False):
+                        return
+                    name = " ".join(
+                        part
+                        for part in (
+                            getattr(sender, "first_name", None),
+                            getattr(sender, "last_name", None),
+                        )
+                        if part
+                    ) or str(sender.id)
+                    self.db.upsert_recipient(
+                        account.id, sender.id, getattr(sender, "username", None), name
                     )
-                    if part
-                ) or str(sender.id)
-                self.db.upsert_recipient(
-                    account.id, sender.id, getattr(sender, "username", None), name
-                )
+                except Exception:
+                    log.exception("Could not remember incoming message sender for %s", account.phone)
 
             if isinstance(client, Client):
                 async def remember_pyro(_, message):
-                    sender = message.from_user
-                    if sender and not sender.is_bot:
-                        name = ' '.join(p for p in (sender.first_name, sender.last_name) if p)
-                        self.db.upsert_recipient(account.id, sender.id, sender.username, name or str(sender.id))
+                    try:
+                        sender = message.from_user
+                        if sender is None or sender.is_bot:
+                            return
+                        name = " ".join(
+                            part for part in (sender.first_name, sender.last_name) if part
+                        ) or str(sender.id)
+                        self.db.upsert_recipient(
+                            account.id, sender.id, sender.username, name
+                        )
+                    except Exception:
+                        log.exception("Could not remember incoming message sender for %s", account.phone)
                 client.add_handler(MessageHandler(remember_pyro, filters.private & filters.incoming))
             else:
                 client.add_event_handler(remember_sender, events.NewMessage(incoming=True))
