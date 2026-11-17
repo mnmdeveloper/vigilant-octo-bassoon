@@ -108,6 +108,7 @@ class RuntimeManager:
 
             if isinstance(client, Client):
                 async def remember_pyro(_, message):
+                    sender = message.from_user
                     try:
                         sender = message.from_user
                         if sender is None or sender.is_bot:
